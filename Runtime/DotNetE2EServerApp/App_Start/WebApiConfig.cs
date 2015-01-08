@@ -7,8 +7,11 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Data;
 using System.Data.Entity;
+using System.Data.Entity.Core.Objects;
+using System.Data.Entity.Infrastructure;
 using System.Data.SqlClient;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Web.Http;
 using AutoMapper;
 using Microsoft.WindowsAzure.Mobile.Service;
@@ -93,7 +96,8 @@ namespace ZumoE2EServerApp
                     context.Set<Movie>().Add(movie);
                 }
                 context.SaveChangesAsync().Wait();
-                this.BulkInsertMovies(context.Database.Connection.ConnectionString, movies.Skip(50).Take(50));
+                string tableName = GetTableName<Movie>(context);
+                this.BulkInsertMovies(context.Database.Connection.ConnectionString, tableName, movies.Skip(50).Take(50));
                 foreach (var movie in movies.Skip(100))
                 {
                     context.Set<Movie>().Add(movie);
@@ -107,7 +111,17 @@ namespace ZumoE2EServerApp
                 base.Seed(context);
             }
 
-            private void BulkInsertMovies(string connStr, IEnumerable<Movie> movies)
+            public static string GetTableName<T>(DbContext context) where T : class
+            {
+                ObjectContext objectContext = ((IObjectContextAdapter)context).ObjectContext;
+                string sql = objectContext.CreateObjectSet<T>().ToTraceString();
+                Regex regex = new Regex(@"FROM\s+(?<table>.+)\s+AS");
+                Match match = regex.Match(sql);
+                string table = match.Groups["table"].Value;
+                return table;
+            }
+
+            private void BulkInsertMovies(string connStr, string tableName, IEnumerable<Movie> movies)
             {
                 SqlBulkCopy bcp = new SqlBulkCopy(connStr, SqlBulkCopyOptions.FireTriggers);
                 bcp.DestinationTableName = "[ZumoE2EServerApp].Movies";
