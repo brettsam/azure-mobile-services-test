@@ -2,20 +2,21 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // ----------------------------------------------------------------------------
 
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Data;
+using System.Data.Entity;
+using System.Data.SqlClient;
+using System.Linq;
+using System.Web.Http;
 using AutoMapper;
 using Microsoft.WindowsAzure.Mobile.Service;
 using Microsoft.WindowsAzure.Mobile.Service.Config;
 using Microsoft.WindowsAzure.Mobile.Service.Security;
 using Newtonsoft.Json;
-using System;
-using System.Collections;
-using System.Data.Entity;
-using System.Diagnostics;
-using System.Linq;
-using System.Web.Http;
 using ZumoE2EServerApp.DataObjects;
 using ZumoE2EServerApp.Models;
-using Newtonsoft.Json.Linq;
 using ZumoE2EServerApp.Utils;
 
 namespace ZumoE2EServerApp
@@ -84,10 +85,20 @@ namespace ZumoE2EServerApp
         {
             protected override void Seed(SDKClientTestContext context)
             {
-                foreach (var movie in TestMovies.GetTestMovies())
+                // to enable some better testing scenarios for offline, we'll insert 50 records,
+                // then bulk insert 50 so they have the same UpdatedAt, then continue with the rest
+                var movies = TestMovies.GetTestMovies();
+                foreach (var movie in movies.Take(50))
                 {
                     context.Set<Movie>().Add(movie);
                 }
+                context.SaveChangesAsync().Wait();
+                this.BulkInsertMovies(context.Database.Connection.ConnectionString, movies.Skip(50).Take(50));
+                foreach (var movie in movies.Skip(100))
+                {
+                    context.Set<Movie>().Add(movie);
+                }
+
                 foreach (var movie in TestMovies.TestIntIdMovies)
                 {
                     context.Set<IntIdMovie>().Add(movie);
@@ -95,6 +106,47 @@ namespace ZumoE2EServerApp
 
                 base.Seed(context);
             }
+
+            private void BulkInsertMovies(string connStr, IEnumerable<Movie> movies)
+            {
+                SqlBulkCopy bcp = new SqlBulkCopy(connStr, SqlBulkCopyOptions.FireTriggers);
+                bcp.DestinationTableName = "[ZumoE2EServerApp].Movies";
+
+                var table = new DataTable();
+                // these columns need to be declared in the same order as declared in SQL
+                table.Columns.Add("Id");
+                table.Columns.Add("Title");
+                table.Columns.Add("Duration");
+                table.Columns.Add("MpaaRating");
+                table.Columns.Add("ReleaseDate");
+                table.Columns.Add("BestPictureWinner");
+                table.Columns.Add("Year");
+                table.Columns.Add("Version");
+                table.Columns.Add("CreatedAt");
+                table.Columns.Add("UpdatedAt");
+                table.Columns.Add("Deleted");
+
+                movies.Each(m =>
+                {
+                    var row = table.NewRow();
+                    row["Id"] = m.Id;
+                    row["Title"] = m.Title;
+                    row["MpaaRating"] = m.MpaaRating;
+                    row["Year"] = m.Year;
+                    row["ReleaseDate"] = m.ReleaseDate;
+                    row["Duration"] = m.Duration;
+                    row["BestPictureWinner"] = m.BestPictureWinner;
+                    row["Deleted"] = m.Deleted;
+                    row["UpdatedAt"] = m.UpdatedAt;
+                    row["Version"] = m.Version;
+                    row["CreatedAt"] = DateTimeOffset.UtcNow;
+                    table.Rows.Add(row);
+                });
+
+                bcp.WriteToServer(table);
+            }
         }
+
+
     }
 }
